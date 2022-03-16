@@ -22,6 +22,14 @@ export default function Root({initialCache}) {
   );
 }
 
+export function SsrRoot({children}) {
+  return (
+    <Suspense fallback={null}>
+      <ErrorBoundary FallbackComponent={Error}>{children}</ErrorBoundary>
+    </Suspense>
+  );
+}
+
 function Content() {
   const [location, setLocation] = useState({
     selectedId: null,

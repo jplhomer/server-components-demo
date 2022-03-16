@@ -23,10 +23,16 @@ const compress = require('compression');
 const {readFileSync} = require('fs');
 const {unlink, writeFile} = require('fs').promises;
 const {renderToPipeableStream} = require('react-server-dom-webpack/writer');
+const {
+  renderToReadableStream,
+} = require('react-server-dom-webpack/writer.browser.server');
 const path = require('path');
 const {Pool} = require('pg');
 const React = require('react');
 const ReactApp = require('../src/App.server').default;
+const {ReadableStream} = require('web-streams-polyfill/ponyfill');
+
+globalThis.ReadableStream = ReadableStream;
 
 // Don't keep credentials in the source tree in a real app!
 const pool = new Pool(require('../credentials'));
@@ -75,14 +81,12 @@ app.get(
   '/',
   handleErrors(async function(_req, res) {
     await waitForWebpack();
-    const html = readFileSync(
-      path.resolve(__dirname, '../build/index.html'),
-      'utf8'
+    const renderToSsrPipeableStream = require('../build/ssr/ssr');
+    console.log(renderToSsrPipeableStream);
+    const {pipe} = renderToSsrPipeableStream(
+      await renderReactTreeToReadableStream()
     );
-    // Note: this is sending an empty HTML shell, like a client-side-only app.
-    // However, the intended solution (which isn't built out yet) is to read
-    // from the Server endpoint and turn its response into an HTML stream.
-    res.send(html);
+    pipe(res);
   })
 );
 
@@ -98,6 +102,19 @@ async function renderReactTree(res, props) {
     moduleMap
   );
   pipe(res);
+}
+
+async function renderReactTreeToReadableStream(props) {
+  await waitForWebpack();
+  const manifest = readFileSync(
+    path.resolve(__dirname, '../build/react-client-manifest.json'),
+    'utf8'
+  );
+  const moduleMap = JSON.parse(manifest);
+  return renderToReadableStream(
+    React.createElement(ReactApp, props),
+    moduleMap
+  );
 }
 
 function sendResponse(req, res, redirectToId) {
@@ -194,7 +211,8 @@ app.use(express.static('public'));
 async function waitForWebpack() {
   while (true) {
     try {
-      readFileSync(path.resolve(__dirname, '../build/index.html'));
+      readFileSync(path.resolve(__dirname, '../build/main.js'));
+      readFileSync(path.resolve(__dirname, '../build/ssr.js'));
       return;
     } catch (err) {
       console.log(
